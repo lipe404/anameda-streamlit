@@ -103,12 +103,33 @@ def load_data():
             # Conecta com a API do Meta
             with st.spinner("Conectando com a API do Meta Business Suite..."):
                 meta_api = MetaAdsAPI()
+
+                # Testa conexão primeiro
+                connection_test = meta_api.test_connection()
+
+                if not connection_test['success']:
+                    st.error(f"❌ Erro de conexão: {connection_test['error']}")
+                    st.info("Carregando dados de exemplo...")
+                    data = DataProcessor.create_sample_data(days=60)
+                    st.session_state.campaign_data = data
+                    st.session_state.data_loaded = True
+                    return data
+
+                st.success(
+                    f"✅ Conectado à conta: {connection_test['account_name']}")
+                st.info(
+                    f"📊 Encontradas {connection_test['campaigns_count']} campanhas")
+
+                # Busca dados das campanhas
                 data = meta_api.get_all_campaigns_data()
 
                 if data.empty:
                     st.warning(
-                        "Nenhum dado encontrado. Usando dados de exemplo.")
+                        "⚠️ Nenhum dado de insights encontrado. Usando dados de exemplo.")
                     data = DataProcessor.create_sample_data(days=60)
+                else:
+                    st.success(
+                        f"✅ Carregados {len(data)} registros de campanhas")
 
                 # Processa e limpa os dados
                 data = DataProcessor.clean_campaign_data(data)
@@ -119,8 +140,8 @@ def load_data():
                 return data
 
     except Exception as e:
-        st.error(f"Erro ao carregar dados: {str(e)}")
-        st.info("Carregando dados de exemplo...")
+        st.error(f"❌ Erro ao carregar dados: {str(e)}")
+        st.info("🔄 Carregando dados de exemplo...")
         data = DataProcessor.create_sample_data(days=60)
         st.session_state.campaign_data = data
         st.session_state.data_loaded = True
@@ -220,7 +241,7 @@ def show_overview_page():
 
     with col1:
         if 'spend_timeline' in charts:
-            st.plotly_chart(charts['spend_timeline'], use_container_width=True)
+            st.plotly_chart(charts['spend_timeline'], width="stretch")
 
         if 'ctr_by_campaign' in charts:
             st.plotly_chart(charts['ctr_by_campaign'],

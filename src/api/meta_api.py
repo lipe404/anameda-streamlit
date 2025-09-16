@@ -1,4 +1,3 @@
-# Conexão com Meta Business API
 """
 Módulo para conexão com a API do Meta Business Suite
 """
@@ -78,25 +77,25 @@ class MetaAdsAPI:
         """
         try:
             campaign = Campaign(campaign_id)
+
+            # Campos básicos que funcionam para todos os tipos de campanha
+            basic_fields = [
+                'campaign_id',
+                'campaign_name',
+                'impressions',
+                'reach',
+                'clicks',
+                'spend',
+                'cpm',
+                'cpc',
+                'ctr',
+                'frequency',
+                'date_start',
+                'date_stop'
+            ]
+
             insights = campaign.get_insights(
-                fields=[
-                    'campaign_id',
-                    'campaign_name',
-                    'impressions',
-                    'reach',
-                    'clicks',
-                    'spend',
-                    'cpm',
-                    'cpc',
-                    'ctr',
-                    'frequency',
-                    'actions',
-                    'cost_per_action_type',
-                    'video_views',
-                    'video_view_rate',
-                    'date_start',
-                    'date_stop'
-                ],
+                fields=basic_fields,
                 params={
                     'date_preset': date_preset,
                     'time_increment': 1
@@ -115,13 +114,39 @@ class MetaAdsAPI:
         Returns:
             pd.DataFrame: DataFrame com dados das campanhas
         """
-        campaigns = self.get_campaigns()
-        all_data = []
+        try:
+            # Primeiro, tenta buscar insights da conta inteira (mais eficiente)
+            logger.info("Buscando insights da conta de anúncios...")
 
-        for campaign in campaigns:
-            insights = self.get_campaign_insights(campaign['id'])
+            account_insights = self.ad_account.get_insights(
+                fields=[
+                    'campaign_id',
+                    'campaign_name',
+                    'impressions',
+                    'reach',
+                    'clicks',
+                    'spend',
+                    'cpm',
+                    'cpc',
+                    'ctr',
+                    'frequency',
+                    'date_start',
+                    'date_stop'
+                ],
+                params={
+                    'date_preset': 'last_30d',
+                    'time_increment': 1,
+                    'level': 'campaign'
+                }
+            )
 
-            for insight in insights:
+            all_data = []
+            insights_list = list(account_insights)
+
+            logger.info(
+                f"Encontrados {len(insights_list)} registros de insights")
+
+            for insight in insights_list:
                 data = {
                     'campaign_id': insight.get('campaign_id'),
                     'campaign_name': insight.get('campaign_name'),
@@ -135,26 +160,73 @@ class MetaAdsAPI:
                     'ctr': float(insight.get('ctr', 0)),
                     'frequency': float(insight.get('frequency', 0)),
                 }
-
-                # Processa ações (conversões)
-                actions = insight.get('actions', [])
-                for action in actions:
-                    action_type = action.get('action_type')
-                    if action_type == 'page_engagement':
-                        data['page_engagement'] = int(action.get('value', 0))
-                    elif action_type == 'post_engagement':
-                        data['post_engagement'] = int(action.get('value', 0))
-                    elif action_type == 'link_click':
-                        data['link_clicks'] = int(action.get('value', 0))
-
                 all_data.append(data)
 
-        df = pd.DataFrame(all_data)
-        if not df.empty:
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.sort_values('date')
+            df = pd.DataFrame(all_data)
 
-        return df
+            if not df.empty:
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.sort_values('date')
+                logger.info(f"DataFrame criado com {len(df)} linhas")
+            else:
+                logger.warning("Nenhum dado encontrado nos insights da conta")
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Erro ao buscar dados da conta: {e}")
+            logger.info("Tentando método alternativo...")
+            return self._get_campaigns_data_fallback()
+
+    def _get_campaigns_data_fallback(self):
+        """
+        Método alternativo para buscar dados das campanhas individualmente
+
+        Returns:
+            pd.DataFrame: DataFrame com dados das campanhas
+        """
+        try:
+            campaigns = self.get_campaigns()
+            all_data = []
+
+            logger.info(
+                f"Buscando insights de {len(campaigns)} campanhas individualmente...")
+
+            for campaign in campaigns:
+                try:
+                    insights = self.get_campaign_insights(campaign['id'])
+
+                    for insight in insights:
+                        data = {
+                            'campaign_id': insight.get('campaign_id'),
+                            'campaign_name': insight.get('campaign_name'),
+                            'date': insight.get('date_start'),
+                            'impressions': int(insight.get('impressions', 0)),
+                            'reach': int(insight.get('reach', 0)),
+                            'clicks': int(insight.get('clicks', 0)),
+                            'spend': float(insight.get('spend', 0)),
+                            'cpm': float(insight.get('cpm', 0)),
+                            'cpc': float(insight.get('cpc', 0)),
+                            'ctr': float(insight.get('ctr', 0)),
+                            'frequency': float(insight.get('frequency', 0)),
+                        }
+                        all_data.append(data)
+
+                except Exception as campaign_error:
+                    logger.warning(
+                        f"Erro ao buscar insights da campanha {campaign.get('name', 'N/A')}: {campaign_error}")
+                    continue
+
+            df = pd.DataFrame(all_data)
+            if not df.empty:
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.sort_values('date')
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Erro no método alternativo: {e}")
+            return pd.DataFrame()
 
     def get_account_insights(self):
         """
@@ -181,3 +253,30 @@ class MetaAdsAPI:
         except Exception as e:
             logger.error(f"Erro ao buscar insights da conta: {e}")
             return {}
+
+    def test_connection(self):
+        """
+        Testa a conexão com a API
+
+        Returns:
+            dict: Resultado do teste
+        """
+        try:
+            # Testa acesso à conta
+            account_info = self.ad_account.api_get(
+                fields=['name', 'account_status'])
+
+            # Testa busca de campanhas
+            campaigns = self.get_campaigns()
+
+            return {
+                'success': True,
+                'account_name': account_info.get('name', 'N/A'),
+                'account_status': account_info.get('account_status', 'N/A'),
+                'campaigns_count': len(campaigns)
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
