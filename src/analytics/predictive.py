@@ -425,12 +425,24 @@ class PredictiveAnalytics:
         # Linear Regression
         lr_key = f'linear_{target_column}'
         if lr_key in self.models:
-            model = self.models[lr_key]
-            importance = model.get_feature_importance()
-            if importance is not None:
+            try:
+                model = self.models[lr_key]
+                importance = model.get_feature_importance()
+
+                if importance is not None and not importance.empty:
+                    summary['linear_regression'] = {
+                        'top_features': importance.head(5).to_dict('records'),
+                        'model_type': model.model_type,
+                        'total_features': len(importance)
+                    }
+                else:
+                    summary['linear_regression'] = {
+                        'model_type': model.model_type,
+                        'note': 'Importância das features não disponível'
+                    }
+            except Exception as e:
                 summary['linear_regression'] = {
-                    'top_features': importance.head(5).to_dict('records'),
-                    'model_type': model.model_type
+                    'error': f'Erro ao obter performance: {str(e)}'
                 }
 
         return summary

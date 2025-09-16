@@ -222,21 +222,42 @@ class LinearRegressionPredictor:
         if self.model is None or self.feature_names is None:
             return None
 
-        # Obtém coeficientes do modelo
-        regressor = self.model.named_steps['regressor']
+        try:
+            # Obtém coeficientes do modelo
+            regressor = self.model.named_steps['regressor']
 
-        if hasattr(regressor, 'coef_'):
-            coefficients = regressor.coef_
+            if hasattr(regressor, 'coef_'):
+                coefficients = regressor.coef_
 
-            # Se há features polinomiais, usa apenas os coeficientes originais
-            if 'poly' in self.model.named_steps:
-                coefficients = coefficients[:len(self.feature_names)]
+                # Verifica se há features polinomiais
+                if 'poly' in self.model.named_steps:
+                    # Para features polinomiais, obtém os nomes das features transformadas
+                    poly_transformer = self.model.named_steps['poly']
+                    feature_names = poly_transformer.get_feature_names_out(
+                        self.feature_names)
 
-            importance_df = pd.DataFrame({
-                'feature': self.feature_names,
-                'importance': np.abs(coefficients)
-            }).sort_values('importance', ascending=False)
+                    # Garante que temos o mesmo número de nomes e coeficientes
+                    min_length = min(len(feature_names), len(coefficients))
+                    feature_names = feature_names[:min_length]
+                    coefficients = coefficients[:min_length]
+                else:
+                    # Para modelos lineares simples
+                    feature_names = self.feature_names
+                    min_length = min(len(feature_names), len(coefficients))
+                    feature_names = feature_names[:min_length]
+                    coefficients = coefficients[:min_length]
 
-            return importance_df
+                # Cria DataFrame com importâncias
+                importance_df = pd.DataFrame({
+                    'feature': feature_names,
+                    'importance': np.abs(coefficients)
+                }).sort_values('importance', ascending=False)
+
+                return importance_df
+
+        except Exception as e:
+            # Se houver erro, retorna DataFrame vazio ou None
+            print(f"Erro ao calcular importância das features: {e}")
+            return None
 
         return None
